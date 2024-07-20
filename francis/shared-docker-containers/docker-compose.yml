@@ -1,0 +1,11 @@
+version: "3"
+
+services:
+    nginx:
+        #    This Nginx serves as only as a reverse proxy for the applications hosted on this server.
+        image: 'nginx:1.25-alpine'
+        ports:
+            - '80:80'
+        volumes:
+            - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+            - ./nginx/conf.d/:/etc/nginx/conf.d/

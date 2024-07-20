@@ -1,0 +1,109 @@
+version: "3"
+services:
+    mysql:
+        image: 'mysql/mysql-server:8.0'
+        expose:
+            - "${DB_PORT}"
+        environment:
+            MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_ROOT_HOST: '%'
+            MYSQL_TCP_PORT: '${DB_PORT}'
+            MYSQL_DATABASE: '${DB_DATABASE}'
+            MYSQL_USER: '${DB_USERNAME}'
+            MYSQL_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_ALLOW_EMPTY_PASSWORD: 0
+        volumes:
+            #APP_NAME is used to avoid conflicts with other projects
+            - "~/.docker-volumes/${COMPOSE_PROJECT_NAME}/mysql:/var/lib/mysql"
+            - "./docker/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh"
+            - "./docker/mysql/mysqld.cnf:/etc/mysql/mysql.conf.d/mysqld.cnf"
+        networks:
+            - backend
+        healthcheck:
+            test: [ "CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}" ]
+            retries: 3
+            timeout: 5s
+
+    php:
+        build:
+            context: ./docker/php
+            args:
+                #Don't use env_file here.
+                #It will make env not to reflect until you restart the container
+                APP_ENV: '${APP_ENV}'
+        volumes:
+            - "./:/var/www/html"
+            # Do not add any configuration file here, it will crash app
+        networks:
+            - backend
+        depends_on:
+            - mysql
+
+    nginx:
+        image: 'nginx:1.25-alpine'
+        ports:
+            - '${APP_PORT}:80'
+        volumes:
+            - ./:/var/www/html
+            - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+            - ./docker/nginx/conf.d/:/etc/nginx/conf.d/
+        networks:
+            - backend
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        depends_on:
+            - php
+
+    phpmyadmin:
+        build: ./docker/phpmyadmin
+        environment:
+            #https://docs.phpmyadmin.net/en/release_5_1_4/setup.html#docker-environment-variables
+            #https://docs.phpmyadmin.net/en/release_5_1_4/setup.html#customizing-configuration-file-using-docker-compose
+            PMA_ARBITRARY: 0 #Don't ask for server name
+            PMA_HOST: '${DB_CONNECTION}'
+            PMA_PORT: '${DB_PORT}'
+            MYSQL_USER: '${DB_USERNAME}' #Don't use 'root' as user here, it will cause errors
+            MYSQL_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+            MAX_EXECUTION_TIME: 600
+            MEMORY_LIMIT: '256M'
+            UPLOAD_LIMIT: '2G'
+        depends_on:
+            - mysql
+        networks:
+            - backend
+
+    cron:
+        build:
+            context: ./docker/php
+            args:
+                APP_ENV: '${APP_ENV}'
+        #https://serversideup.net/open-source/docker-php/docs/laravel/laravel-task-scheduler
+        #https://laravel-news.com/schedulework
+        command: [ "php", "/var/www/html/artisan", "schedule:work" ]
+        #Needed for bash scripts to access environment variables
+        volumes:
+            - "./:/var/www/html"
+            # Do not add any configuration file here, it will crash app
+        networks:
+            - backend
+        depends_on:
+            - mysql
+
+    # redis:
+    #     build:
+    #         context: ./docker/redis
+    #         args:
+    #             REDIS_PASSWORD: '${REDIS_PASSWORD}'
+    #     volumes:
+    #         - "~/.docker-volumes/${COMPOSE_PROJECT_NAME}/redis/data:/data"
+    #     networks:
+    #         - backend
+networks:
+    backend:
+        driver: bridge
+volumes:
+    mysql:
+        driver: local
+    # redis:
+    #     driver: local

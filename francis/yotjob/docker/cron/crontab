@@ -1,0 +1,5 @@
+#Restart cron container whenever you add new cron command.
+#You can't use volumes to sync this in docker compose, i tried it and it didn't work
+#It will make cron service not to run
+
+* * * * * cd /var/www/html && php artisan schedule:run >> /dev/stdout 2>&1

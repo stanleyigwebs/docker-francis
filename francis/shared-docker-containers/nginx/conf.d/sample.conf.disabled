@@ -1,0 +1,110 @@
+server {
+
+    server_name api.yotjob.test api.yotjob.com;
+
+    #IP address below should be IPV4 address of the server running the application (161.35.227.148)
+    #or IP address of the WSL IP gotten with "hostname -I" (172.25.42.230)
+    #and external port of the application
+    
+    location / {
+        proxy_pass http://172.25.42.230:8000;
+    }
+
+}
+
+
+################################################## Below is Kyrian's sample #########################
+
+# HTTPS Redirect
+server {
+    listen 80;
+    listen [::]:80;
+
+    location ~ /.well-known/acme-challenge {
+        allow all;
+        root /var/www/certbot;
+    }
+
+    location / {
+        rewrite ^ https://$host$request_uri? permanent;
+    }
+}
+
+#Frontend server block
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name codewithkyrian.com www.codewithkyrian.com;
+
+    charset utf-8;
+
+    server_tokens off;
+
+    include /opt/docker/etc/nginx/vhost.ssl.conf;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src * data: 'unsafe-eval' 'unsafe-inline'" always;
+   
+    #forward all /api routes to the backend
+    location /api {
+        proxy_pass http://backend.codewithkyrian.com;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+   location / {
+        gzip_static on;
+        proxy_pass http://frontend:3000;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Original-Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+}
+
+# Backend Server Block
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name backend.codewithkyrian.com;
+
+    charset utf-8;
+
+    server_tokens off;
+
+    include /opt/docker/etc/nginx/vhost.ssl.conf;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src * data: 'unsafe-eval' 'unsafe-inline' blob:" always;
+
+    error_page 404 400 403 401 @php;
+    error_page 500 502 503 504 @php;
+
+    location / {
+        gzip_static on;
+        root /var/www/public;
+        try_files $uri $uri/ @php;
+    }
+
+    location @php {
+        gzip on;
+        fastcgi_pass php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /var/www/public/index.php;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_intercept_errors off;
+    }
+}

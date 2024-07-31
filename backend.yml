@@ -1,0 +1,85 @@
+name: Deploy Site on push
+env:
+    # PROJECT_NAME should match repository name
+    PROJECT_NAME: "homeflower"
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "backend/**"
+            - ".github/workflows/backend.yml"
+
+jobs:
+    web-deploy:
+        name: Deploy
+        runs-on: ubuntu-latest
+        container:
+            image: kirschbaumdevelopment/laravel-test-runner:8.2
+        steps:
+            - name: 🚚 Get latest code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+              # ensure changed-files can read repo files from git
+            - name: Configure Git Safe Directory
+              # https://github.com/tj-actions/changed-files/issues/1948#issuecomment-1957342983
+              run: git config --global --add safe.directory /__w/${{ env.PROJECT_NAME }}/${{ env.PROJECT_NAME }}
+
+            - name: Cache Composer packages
+              id: composer-cache
+              uses: actions/cache@v4
+              with:
+                  path: backend/vendor
+                  key: ${{ runner.os }}-php-${{ hashFiles('backend/**/composer.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-php-
+
+            - name: Install Composer Dependencies
+              working-directory: backend
+              run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist --optimize-autoloader
+
+            #TODO : Setup and run test during CI/CD to ensure that the code is working as expected.
+            #especially for the database migrations.
+
+            - name: Check for database migrations changes
+              id: check-database-migrations
+              run: |
+                  if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q 'backend/database/migrations'; then
+                      echo "DATABASE_MIGRATIONS_CHANGED=true" >> $GITHUB_ENV
+                  else
+                      echo "DATABASE_MIGRATIONS_CHANGED=false" >> $GITHUB_ENV
+                  fi
+
+            - name: Copy Files via SSH
+              uses: appleboy/scp-action@v0.1.7
+              with:
+                  host: ${{ secrets.SSH_HOST }}
+                  username: ${{ secrets.SSH_USERNAME }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  port: 22
+                  source: "./backend"
+                  target: "~/projects/${{ env.PROJECT_NAME }}"
+
+            - name: Prepare deployment script
+              run: |
+                  {
+                      cat .github/scripts/backend-deploy.sh;
+                      echo; #newline
+                  } > deploy_script.sh
+
+            - name: Read deployment script contents
+              id: deployment-script
+              uses: andstor/file-reader-action@v1
+              with:
+                  path: deploy_script.sh
+
+            - name: SSH into server and run commands
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                  host: ${{ secrets.SSH_HOST }}
+                  username: ${{ secrets.SSH_USERNAME }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  envs: PROJECT_NAME,DATABASE_MIGRATIONS_CHANGED
+                  script: ${{ steps.deployment-script.outputs.contents }}

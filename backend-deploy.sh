@@ -20,7 +20,7 @@ docker compose exec $CRON_SERVICE /bin/bash -c "\
 php artisan schedule:interrupt && \
 php artisan queue:restart"
 
-docker compose down $CRON_SERVICE
+docker compose stop $CRON_SERVICE
 
 #Make code changes reflect
 restart_php_fpm_service $PHP_SERVICE
